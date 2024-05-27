@@ -8,9 +8,9 @@ import uasyncio as asyncio
 from machine import Timer, Pin, reset
 
 import web
+import utils
 
 from rf import RFDevice
-from mqtt import MQTTClient
 from orchestrator import Orchestrator
 from shelve import ShelveFile
 from config import SETTINGS_FILE
@@ -74,13 +74,9 @@ async def main(watcher):
     server_task=asyncio.create_task(web.app.start_server(port=80))
 
     if not AP_MODE:
-        mqtt_client=MQTTClient("TestPico","10.27.81.207",user="hamqtt", password="Sh@nima821")
-        mqtt_client.connect()
-        mqtt_client.publish("RF2MQTT/availability","online",retain=True)
-        mqtt_client.disconnect()
-    
-    led=watcher.get_led(2)
-    led.off()
+        utils.publish_mqtt("RF2MQTT/availability","online",True)
+
+    watcher.power_led.on()
     watcher.status_green.blink(on_time=1/4, off_time=1/4,n=4)
 
     # Not sure why I have to do things this way, but it works...
@@ -95,7 +91,6 @@ if __name__ == "__main__":
         os.unlink(SETTINGS_FILE)
         watcher.status_red.blink(on_time=1/4, off_time=1/4,n=4)
         
-    led=watcher.get_led(2)
-    led.blink(n=None)
+    watcher.power_led.blink(n=None)
     
     asyncio.run(main(watcher))

@@ -5,7 +5,10 @@ from machine import Pin, Timer
 from led import LED
 from config import SETTINGS_FILE
 from shelve import ShelveFile
-from mqtt import MQTTClient
+from utils import post_button_mqtt
+
+import micropython
+micropython.alloc_emergency_exception_buf(100)
 
 class Orchestrator:
     # Pin numbers
@@ -31,25 +34,23 @@ class Orchestrator:
     
     status_green=_LEDS[STATUS_GREEN]
     status_red=_LEDS[STATUS_RED]
-    
+    power_led=_LEDS[POWER]
     
     # button # to pin number lookup. No "button zero", so 0 is None
     BUTTON_PINS=[POWER, LED_A_PIN, LED_B_PIN, LED_C_PIN, LED_D_PIN, STATUS_GREEN, STATUS_RED]
     
     def __init__(self):
-        self._BLINK_TIMERS={} # Initialize to an empty dict
         self._last_press=None # tuple of Remote ID, button, time
         self._learn_mode=False # For learning a new remote code/button. Must use the same protocol we know already.
+        self._config_last_edge=False
         
         with ShelveFile(SETTINGS_FILE) as remote_file:
             self._known_remotes=remote_file.get('remotes',[])
             self._associations = remote_file.get('associations', {})
         
         self.config_button=Pin(14,Pin.IN,Pin.PULL_DOWN)
-        self.config_button.irq(handler=self._config_released, trigger=Pin.IRQ_FALLING)
-        self._config_timer=Timer()
-
-            
+        self.config_button.irq(handler=self._config_handler, trigger=Pin.IRQ_RISING | Pin.IRQ_FALLING)
+        
     def get_led(self,pin):
         return self._LEDS[pin]
             
@@ -98,16 +99,37 @@ class Orchestrator:
         if button_num in self._associations:
             self._associations[button_num](button_num)
             
-        mqtt_client=MQTTClient("TestPico","10.27.81.207",user="hamqtt", password="Sh@nima821")
-        mqtt_client.connect()
-        mqtt_client.publish("RF2MQTT/remote/"+str(button_num),"ON")
-        mqtt_client.disconnect()
-        self.status_green.blink(on_time=1/7, off_time=1/7, n=4)
+        result=post_button_mqtt(button_num)
+        if result:
+            self.status_green.blink(on_time=1/7, off_time=1/7, n=4)
+        else:
+            self.status_red.blink(on_time=1/7, off_time=1/7, n=4)
         
-    def _config_released(self,pin):
-        self._config_timer.init(mode=Timer.ONE_SHOT, period=100,callback=self._set_learn_mode)
+    def _config_handler(self,pin=None):
+        edge=pin.value()
+        if edge==self._config_last_edge:
+            return # Nothing happened.
         
-    def _set_learn_mode(self,timer):
+        print("Handler called", pin)
+      
+        pin.irq(handler=None)
+        print("Edge Detected:", edge)
+
+        # Sleep for a tenth of a second to make sure this is a real edge.
+        time.sleep(.25)
+        
+        edge2=pin.value()
+        
+        if edge==edge2:
+            # Good edge
+            self._config_last_edge=edge2
+            if not edge2:
+                self._set_learn_mode()
+        
+        # Re-enable interupts to catch the next edge
+        self.config_button.irq(handler=self._config_handler, trigger=Pin.IRQ_FALLING | Pin.IRQ_RISING)
+        
+    def _set_learn_mode(self,timer=None):
         self._learn_mode=not self._learn_mode
         if self._learn_mode:
             print("Entered Learn Mode")
