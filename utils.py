@@ -17,9 +17,9 @@ def publish_mqtt(topic, message, retain=False):
         mqtt_password=settings.get('mqtt_password') or None
         
     if mqtt_broker is None:
+        print("MQTT Broker not set!")
         return False
     
-
     mqtt_client=MQTTClient("RF2MQTT_PICO",mqtt_broker,user=mqtt_user, password=mqtt_password)
     mqtt_client.connect()
     mqtt_client.publish(topic, message, retain=retain)

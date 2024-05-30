@@ -254,6 +254,7 @@ class RFDevice:
         """RX callback for GPIO event detection. Handle basic signal detection."""
         timestamp = time.ticks_us()
         duration = timestamp - self._rx_last_timestamp
+
         if duration > 5000:
             if abs(duration - self._rx_timings[0]) < 200:
                 self._rx_repeat_count += 1
