@@ -79,9 +79,19 @@ async def main(watcher):
     watcher.power_led.on()
     watcher.status_green.blink(on_time=1/4, off_time=1/4,n=4)
 
-    # Not sure why I have to do things this way, but it works...
+    # Main loop just keeps tabs on the WiFi connection
     while True:
-        await asyncio.sleep(1) # Do nothing. Just wait for buttons to be pressed.
+        if not wlan.isconnected():
+            # If we lost WiFi, try to reconnect once. If that fails,
+            # The connect function will do a full reset, repeating
+            # Until it can connect
+            watcher.status_red.on()
+            watcher.power_led.blink(n=None)
+            wlan.disconnect()
+            await connect_wifi(watcher)
+            watcher.power_led.on()
+            watcher.status_green.blink(on_time=1/4, off_time=1/4,n=4)
+        await asyncio.sleep(15) # Do nothing. Just wait for buttons to be pressed.
     
 if __name__ == "__main__":
     watcher=Orchestrator()
