@@ -16,6 +16,7 @@ async def index(request):
         mqtt_user = settings.get('mqtt_user', '')
         mqtt_password = settings.get('mqtt_password', '')
         mqtt_channel = settings.get('mqtt_channel', '')
+        mqtt_debug = settings.get('mqtt_debug',False)
         
         wifi_ssid=settings.get('wifi_ssid','')
         wifi_password=settings.get('wifi_password','')
@@ -25,6 +26,7 @@ async def index(request):
         'mqtt_user': mqtt_user,
         'mqtt_password': mqtt_password,
         'mqtt_channel': mqtt_channel,
+        'mqtt_debug':mqtt_debug,
         'wifi_ssid': wifi_ssid,
         'wifi_password': wifi_password
     }
@@ -49,5 +51,9 @@ def setMQTT(request):
     with ShelveFile(SETTINGS_FILE) as settings:
         for setting in request.form:
             settings[setting] = request.form[setting]
+        if 'mqtt_debug' in request.form and request.form['mqtt_debug']!='false':
+            settings['mqtt_debug']=True
+        else:
+            settings['mqtt_debug']=False
             
     return Response.redirect('/')

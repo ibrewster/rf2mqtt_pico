@@ -5,7 +5,7 @@ from machine import Pin, Timer
 from led import LED
 from config import SETTINGS_FILE
 from shelve import ShelveFile
-from utils import post_button_mqtt
+from utils import post_button_mqtt,publish_mqtt
 
 import micropython
 micropython.alloc_emergency_exception_buf(100)
@@ -39,7 +39,9 @@ class Orchestrator:
     # button # to pin number lookup. No "button zero", so 0 is None
     BUTTON_PINS=[POWER, LED_A_PIN, LED_B_PIN, LED_C_PIN, LED_D_PIN, STATUS_GREEN, STATUS_RED]
     
-    def __init__(self):
+    def __init__(self, minbitlength=24, maxbitlength=24):
+        self._minbit=minbitlength
+        self._maxbit=maxbitlength
         self._last_press=None # tuple of Remote ID, button, time
         self._learn_mode=False # For learning a new remote code/button. Must use the same protocol we know already.
         self._config_last_edge=False
@@ -54,8 +56,11 @@ class Orchestrator:
     def get_led(self,pin):
         return self._LEDS[pin]
             
-    def button_pressed(self,code,timestamp,bitlength,pulselength,proto):        
+    def button_pressed(self,code,timestamp,bitlength,pulselength,proto):
         # Decode the remote ID and button number from the code
+        if bitlength<self._minbit or bitlength>self._maxbit:
+            return
+        
         remote_id = code >> 4
 
         button = code & (0b1111)
@@ -79,7 +84,7 @@ class Orchestrator:
         finally:
             self._last_press=(remote_id,button_num,timestamp)
             
-        print("Processing signal from remote",remote_id,"Button",button_num)
+        print("Processing signal from remote",remote_id,"Button",button_num,"Bitlength:",bitlength, "pulselength:",pulselength)
         if self._learn_mode:
             if remote_id not in self._known_remotes:
                 self._known_remotes.append(remote_id)
@@ -91,7 +96,10 @@ class Orchestrator:
             return
         
         if remote_id not in self._known_remotes:
-            print("Ignoring message from remote", remote_id, "as it is not in our known remotes database")
+            print("Ignoring message from remote", remote_id, "as it is not in our known remotes database.")
+            with ShelveFile(SETTINGS_FILE) as settings:
+                if settings.get('mqtt_debug',False):
+                    publish_mqtt('RF2MQTT/Debug','UNKNOWN Remote: '+str(remote_id)+' Button: '+str(button_num))
             return #Ignore input from unknown remotes
         
         pin=self.BUTTON_PINS[button_num]
@@ -104,19 +112,20 @@ class Orchestrator:
             self.status_green.blink(on_time=1/7, off_time=1/7, n=4)
         else:
             self.status_red.blink(on_time=1/7, off_time=1/7, n=4)
+            
+        with ShelveFile(SETTINGS_FILE) as settings:
+            if settings.get('mqtt_debug',False):
+                publish_mqtt('RF2MQTT/Debug','Known Remote: '+str(remote_id)+' Button: '+str(button_num))
         
     def _config_handler(self,pin=None):
         edge=pin.value()
         if edge==self._config_last_edge:
             return # Nothing happened.
-        
-        print("Handler called", pin)
-      
+              
         pin.irq(handler=None)
-        print("Edge Detected:", edge)
 
         # Sleep for a tenth of a second to make sure this is a real edge.
-        time.sleep(.25)
+        time.sleep(.1)
         
         edge2=pin.value()
         
