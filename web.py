@@ -4,6 +4,8 @@ import machine
 from microdot import Microdot,Response
 from microdot.utemplate import Template
 
+import utils
+
 from config import SETTINGS_FILE
 from shelve import ShelveFile
 
@@ -53,7 +55,9 @@ def setMQTT(request):
             settings[setting] = request.form[setting]
         if 'mqtt_debug' in request.form and request.form['mqtt_debug']!='false':
             settings['mqtt_debug']=True
+            utils.SETTINGS['debug']=True
         else:
             settings['mqtt_debug']=False
+            utils.SETTINGS['debug']=False
             
     return Response.redirect('/')

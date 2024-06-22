@@ -2,10 +2,13 @@ import time
 
 from machine import Pin, Timer
 
+import utils
+
 from led import LED
 from config import SETTINGS_FILE
 from shelve import ShelveFile
 from utils import post_button_mqtt,publish_mqtt
+
 
 import micropython
 micropython.alloc_emergency_exception_buf(100)
@@ -38,6 +41,7 @@ class Orchestrator:
     
     # button # to pin number lookup. No "button zero", so 0 is None
     BUTTON_PINS=[POWER, LED_A_PIN, LED_B_PIN, LED_C_PIN, LED_D_PIN, STATUS_GREEN, STATUS_RED]
+    BUTTON_LEDS=[power_led,_LEDS[LED_A_PIN],_LEDS[LED_B_PIN],_LEDS[LED_C_PIN],_LEDS[LED_D_PIN]]
     
     def __init__(self, minbitlength=24, maxbitlength=24):
         self._minbit=minbitlength
@@ -49,6 +53,7 @@ class Orchestrator:
         with ShelveFile(SETTINGS_FILE) as remote_file:
             self._known_remotes=remote_file.get('remotes',[])
             self._associations = remote_file.get('associations', {})
+            utils.SETTINGS['debug']=remote_file.get('mqtt_debug',False)
         
         self.config_button=Pin(14,Pin.IN,Pin.PULL_DOWN)
         self.config_button.irq(handler=self._config_handler, trigger=Pin.IRQ_RISING | Pin.IRQ_FALLING)
@@ -79,7 +84,8 @@ class Orchestrator:
             pass
         else:
             period=timestamp-last_timestamp # In microseconds
-            if period<500000 and remote_id==last_remote and button_num==last_button:
+            if period<1500000 and remote_id==last_remote and button_num==last_button:
+                self._last_press=(remote_id,button_num,timestamp) # update the timestamp, BUT:
                 return # Don't process this button press, as we have seen it recently
         finally:
             self._last_press=(remote_id,button_num,timestamp)
@@ -92,30 +98,28 @@ class Orchestrator:
                     remote_file['remotes']=self._known_remotes
                     
                 print("Added remote with id", remote_id)
-                self.status_green.blink(on_time=.3, off_time=.3, n=3)
+                self.status_green.blink(period=.3, n=3)
             return
         
         if remote_id not in self._known_remotes:
             print("Ignoring message from remote", remote_id, "as it is not in our known remotes database.")
-            with ShelveFile(SETTINGS_FILE) as settings:
-                if settings.get('mqtt_debug',False):
-                    publish_mqtt('RF2MQTT/Debug','UNKNOWN Remote: '+str(remote_id)+' Button: '+str(button_num))
+            if utils.SETTINGS['debug']:
+                publish_mqtt('RF2MQTT/Debug','UNKNOWN Remote: '+str(remote_id)+' Button: '+str(button_num))
             return #Ignore input from unknown remotes
         
         pin=self.BUTTON_PINS[button_num]
-        self._LEDS[pin].blink(on_time=.5,off_time=0,n=1)
+        self._LEDS[pin].blink(period=.5,n=1)
         if button_num in self._associations:
             self._associations[button_num](button_num)
             
         result=post_button_mqtt(button_num)
         if result:
-            self.status_green.blink(on_time=1/7, off_time=1/7, n=4)
+            self.status_green.blink(period=1/7, n=4)
         else:
-            self.status_red.blink(on_time=1/7, off_time=1/7, n=4)
+            self.status_red.blink(period=1/7, n=4)
             
-        with ShelveFile(SETTINGS_FILE) as settings:
-            if settings.get('mqtt_debug',False):
-                publish_mqtt('RF2MQTT/Debug','Known Remote: '+str(remote_id)+' Button: '+str(button_num))
+        if utils.SETTINGS['debug']:
+            publish_mqtt('RF2MQTT/Debug','Known Remote: '+str(remote_id)+' Button: '+str(button_num))
         
     def _config_handler(self,pin=None):
         edge=pin.value()
